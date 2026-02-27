@@ -1,9 +1,8 @@
-import { router, publicProcedure } from "../trpc/init";
+import { router } from "../trpc/init";
+import { roundRouter } from "./round";
 
 export const appRouter = router({
-  healthCheck: publicProcedure.query(() => {
-    return { status: "ok" };
-  }),
+  round: roundRouter,
 });
 
 export type AppRouter = typeof appRouter;
