@@ -4,20 +4,21 @@ import { useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { useTRPC } from "@/lib/trpc/client";
+import { useTypingStore } from "@/stores/typing-store";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SentenceDisplay } from "@/components/sentence-display";
+import { TypingInput } from "@/components/typing-input";
+import { TypingStats } from "@/components/typing-stats";
 
 export default function Home() {
   const { user, isLoading: authLoading } = useAuth();
   const trpc = useTRPC();
+  const setSentence = useTypingStore((s) => s.setSentence);
 
   const roundQuery = useQuery(trpc.round.getActive.queryOptions());
-
-  const playerMutation = useMutation(
-    trpc.player.findOrCreate.mutationOptions(),
-  );
-
+  const playerMutation = useMutation(trpc.player.findOrCreate.mutationOptions());
   const joinMutation = useMutation(trpc.round.join.mutationOptions());
 
   useEffect(() => {
@@ -39,37 +40,40 @@ export default function Home() {
     });
   }, [roundQuery.data, playerMutation.data]);
 
-  const isLoading =
-    authLoading || roundQuery.isLoading || playerMutation.isPending;
+  useEffect(() => {
+    if (roundQuery.data) {
+      setSentence(roundQuery.data.sentence);
+    }
+  }, [roundQuery.data, setSentence]);
+
+  const isLoading = authLoading || roundQuery.isLoading || playerMutation.isPending;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center gap-6 p-8">
       <h1 className="text-4xl font-bold tracking-tight">Typing Race</h1>
 
-      {isLoading && <Skeleton className="h-32 w-full max-w-2xl" />}
+      {isLoading && <Skeleton className="h-48 w-full" />}
 
       {playerMutation.data && (
         <Badge variant="secondary">{playerMutation.data.name}</Badge>
       )}
 
-      {roundQuery.data && (
-        <Card className="w-full max-w-2xl">
+      {roundQuery.data && joinMutation.data && (
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>Active Round</span>
-              <Badge>{roundQuery.data.duration}s</Badge>
+              <span>Round</span>
+              <div className="flex gap-2">
+                <TypingStats />
+                <Badge>{roundQuery.data.duration}s</Badge>
+              </div>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="font-mono text-lg leading-relaxed">
-              {roundQuery.data.sentence}
-            </p>
+          <CardContent className="space-y-4">
+            <SentenceDisplay />
+            <TypingInput />
           </CardContent>
         </Card>
-      )}
-
-      {joinMutation.data && (
-        <Badge variant="outline">Joined round</Badge>
       )}
     </main>
   );
