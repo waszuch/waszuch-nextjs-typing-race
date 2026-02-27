@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { useTRPC } from "@/lib/trpc/client";
 import { useTypingStore } from "@/stores/typing-store";
+import { useRealtimeRound } from "@/hooks/use-realtime-round";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,10 +17,19 @@ export default function Home() {
   const { user, isLoading: authLoading } = useAuth();
   const trpc = useTRPC();
   const setSentence = useTypingStore((s) => s.setSentence);
+  const typedText = useTypingStore((s) => s.typedText);
+  const wpm = useTypingStore((s) => s.wpm);
+  const accuracy = useTypingStore((s) => s.accuracy);
 
   const roundQuery = useQuery(trpc.round.getActive.queryOptions());
   const playerMutation = useMutation(trpc.player.findOrCreate.mutationOptions());
   const joinMutation = useMutation(trpc.round.join.mutationOptions());
+
+  const { broadcast } = useRealtimeRound({
+    roundId: roundQuery.data?.id,
+    playerId: playerMutation.data?.id,
+    playerName: playerMutation.data?.name,
+  });
 
   useEffect(() => {
     if (!user || playerMutation.data || playerMutation.isPending) return;
@@ -45,6 +55,10 @@ export default function Home() {
       setSentence(roundQuery.data.sentence);
     }
   }, [roundQuery.data, setSentence]);
+
+  useEffect(() => {
+    broadcast(typedText, wpm, accuracy);
+  }, [typedText, wpm, accuracy, broadcast]);
 
   const isLoading = authLoading || roundQuery.isLoading || playerMutation.isPending;
 
