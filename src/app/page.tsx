@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { useTRPC } from "@/lib/trpc/client";
@@ -12,8 +12,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SentenceDisplay } from "@/components/sentence-display";
 import { TypingInput } from "@/components/typing-input";
 import { TypingStats } from "@/components/typing-stats";
+import { PlayersTable } from "@/components/players-table";
 
 export default function Home() {
+  return (
+    <Suspense fallback={<Skeleton className="mx-auto mt-32 h-48 w-full max-w-3xl" />}>
+      <GamePage />
+    </Suspense>
+  );
+}
+
+function GamePage() {
   const { user, isLoading: authLoading } = useAuth();
   const trpc = useTRPC();
   const setSentence = useTypingStore((s) => s.setSentence);
@@ -73,21 +82,32 @@ export default function Home() {
       )}
 
       {roundQuery.data && joinMutation.data && (
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>Round</span>
-              <div className="flex gap-2">
-                <TypingStats />
-                <Badge>{roundQuery.data.duration}s</Badge>
-              </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <SentenceDisplay />
-            <TypingInput />
-          </CardContent>
-        </Card>
+        <>
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Round</span>
+                <div className="flex gap-2">
+                  <TypingStats />
+                  <Badge>{roundQuery.data.duration}s</Badge>
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <SentenceDisplay />
+              <TypingInput />
+            </CardContent>
+          </Card>
+
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>Players</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PlayersTable />
+            </CardContent>
+          </Card>
+        </>
       )}
     </main>
   );
