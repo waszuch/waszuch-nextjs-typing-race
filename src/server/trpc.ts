@@ -2,7 +2,7 @@ import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 
 export const createTRPCContext = async () => {
-  return { db: (await import("../db")).db };
+  return { db: (await import("./db")).db };
 };
 
 export type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;

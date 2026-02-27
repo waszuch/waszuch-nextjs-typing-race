@@ -1,4 +1,4 @@
-export const sentences = [
+const sentences = [
   "The quick brown fox jumps over the lazy dog near the riverbank",
   "Pack my box with five dozen liquor jugs and ship them today",
   "How vexingly quick daft zebras jump over the sleeping fox",
@@ -18,4 +18,22 @@ export const sentences = [
 
 export function getRandomSentence(): string {
   return sentences[Math.floor(Math.random() * sentences.length)]!;
+}
+
+const adjectives = [
+  "Swift", "Quick", "Brave", "Calm", "Bold",
+  "Clever", "Eager", "Fierce", "Happy", "Keen",
+  "Lucky", "Noble", "Sharp", "Witty", "Zesty",
+];
+
+const nouns = [
+  "Fox", "Tiger", "Eagle", "Wolf", "Hawk",
+  "Bear", "Lynx", "Puma", "Raven", "Shark",
+  "Viper", "Falcon", "Otter", "Cobra", "Bison",
+];
+
+export function generatePlayerName(): string {
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]!;
+  const noun = nouns[Math.floor(Math.random() * nouns.length)]!;
+  return `${adj} ${noun}`;
 }
