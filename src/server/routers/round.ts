@@ -57,6 +57,27 @@ export const roundRouter = router({
       return joined!;
     }),
 
+  end: publicProcedure
+    .input(z.object({ roundId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(rounds)
+        .set({ status: "ended" })
+        .where(
+          and(eq(rounds.id, input.roundId), eq(rounds.status, "active")),
+        );
+
+      const [newRound] = await ctx.db
+        .insert(rounds)
+        .values({
+          sentence: getRandomSentence(),
+          duration: 60,
+        })
+        .returning();
+
+      return newRound!;
+    }),
+
   getPlayers: publicProcedure
     .input(z.object({ roundId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

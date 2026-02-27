@@ -1,11 +1,14 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { useTRPC } from "@/lib/trpc/client";
+import { queryClient } from "@/lib/trpc/shared";
 import { useTypingStore } from "@/stores/typing-store";
+import { usePlayersStore } from "@/stores/players-store";
 import { useRealtimeRound } from "@/hooks/use-realtime-round";
+import { useRoundTimer } from "@/hooks/use-round-timer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +16,7 @@ import { SentenceDisplay } from "@/components/sentence-display";
 import { TypingInput } from "@/components/typing-input";
 import { TypingStats } from "@/components/typing-stats";
 import { PlayersTable } from "@/components/players-table";
+import { RoundTimer } from "@/components/round-timer";
 
 export default function Home() {
   return (
@@ -26,18 +30,50 @@ function GamePage() {
   const { user, isLoading: authLoading } = useAuth();
   const trpc = useTRPC();
   const setSentence = useTypingStore((s) => s.setSentence);
+  const resetTyping = useTypingStore((s) => s.reset);
   const typedText = useTypingStore((s) => s.typedText);
   const wpm = useTypingStore((s) => s.wpm);
   const accuracy = useTypingStore((s) => s.accuracy);
+  const resetPlayers = usePlayersStore((s) => s.reset);
 
   const roundQuery = useQuery(trpc.round.getActive.queryOptions());
   const playerMutation = useMutation(trpc.player.findOrCreate.mutationOptions());
   const joinMutation = useMutation(trpc.round.join.mutationOptions());
+  const endRoundMutation = useMutation(trpc.round.end.mutationOptions());
+
+  const isTransitioning = useRef(false);
 
   const { broadcast } = useRealtimeRound({
     roundId: roundQuery.data?.id,
     playerId: playerMutation.data?.id,
     playerName: playerMutation.data?.name,
+  });
+
+  const handleTimeUp = useCallback(() => {
+    if (!roundQuery.data || isTransitioning.current) return;
+    isTransitioning.current = true;
+
+    endRoundMutation.mutate(
+      { roundId: roundQuery.data.id },
+      {
+        onSuccess: () => {
+          resetTyping();
+          resetPlayers();
+          joinMutation.reset();
+          queryClient.invalidateQueries({ queryKey: trpc.round.getActive.queryKey() });
+          isTransitioning.current = false;
+        },
+        onError: () => {
+          isTransitioning.current = false;
+        },
+      },
+    );
+  }, [roundQuery.data, endRoundMutation, resetTyping, resetPlayers, joinMutation, trpc]);
+
+  const { secondsLeft } = useRoundTimer({
+    startTime: roundQuery.data?.startTime,
+    duration: roundQuery.data?.duration,
+    onTimeUp: handleTimeUp,
   });
 
   useEffect(() => {
@@ -89,7 +125,7 @@ function GamePage() {
                 <span>Round</span>
                 <div className="flex gap-2">
                   <TypingStats />
-                  <Badge>{roundQuery.data.duration}s</Badge>
+                  <RoundTimer secondsLeft={secondsLeft} />
                 </div>
               </CardTitle>
             </CardHeader>
