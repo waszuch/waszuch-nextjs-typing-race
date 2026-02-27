@@ -40,6 +40,14 @@ function GamePage() {
   const playerMutation = useMutation(trpc.player.findOrCreate.mutationOptions());
   const joinMutation = useMutation(trpc.round.join.mutationOptions());
   const endRoundMutation = useMutation(trpc.round.end.mutationOptions());
+  const saveProgressMutation = useMutation(trpc.round.saveProgress.mutationOptions());
+
+  const playerStatsQuery = useQuery({
+    ...trpc.player.getStats.queryOptions({
+      playerId: playerMutation.data?.id ?? "",
+    }),
+    enabled: !!playerMutation.data?.id,
+  });
 
   const isTransitioning = useRef(false);
 
@@ -50,25 +58,57 @@ function GamePage() {
   });
 
   const handleTimeUp = useCallback(() => {
-    if (!roundQuery.data || isTransitioning.current) return;
+    if (!roundQuery.data || !playerMutation.data || isTransitioning.current)
+      return;
     isTransitioning.current = true;
 
-    endRoundMutation.mutate(
-      { roundId: roundQuery.data.id },
+    const currentState = useTypingStore.getState();
+
+    saveProgressMutation.mutate(
       {
-        onSuccess: () => {
-          resetTyping();
-          resetPlayers();
-          joinMutation.reset();
-          queryClient.invalidateQueries({ queryKey: trpc.round.getActive.queryKey() });
-          isTransitioning.current = false;
-        },
-        onError: () => {
-          isTransitioning.current = false;
+        roundId: roundQuery.data.id,
+        playerId: playerMutation.data.id,
+        progressText: currentState.typedText,
+        wpm: currentState.wpm,
+        accuracy: currentState.accuracy,
+      },
+      {
+        onSettled: () => {
+          endRoundMutation.mutate(
+            { roundId: roundQuery.data!.id },
+            {
+              onSuccess: () => {
+                resetTyping();
+                resetPlayers();
+                joinMutation.reset();
+                queryClient.invalidateQueries({
+                  queryKey: trpc.round.getActive.queryKey(),
+                });
+                queryClient.invalidateQueries({
+                  queryKey: trpc.player.getStats.queryKey({
+                    playerId: playerMutation.data!.id,
+                  }),
+                });
+                isTransitioning.current = false;
+              },
+              onError: () => {
+                isTransitioning.current = false;
+              },
+            },
+          );
         },
       },
     );
-  }, [roundQuery.data, endRoundMutation, resetTyping, resetPlayers, joinMutation, trpc]);
+  }, [
+    roundQuery.data,
+    playerMutation.data,
+    endRoundMutation,
+    saveProgressMutation,
+    resetTyping,
+    resetPlayers,
+    joinMutation,
+    trpc,
+  ]);
 
   const { secondsLeft } = useRoundTimer({
     startTime: roundQuery.data?.startTime,
@@ -114,7 +154,14 @@ function GamePage() {
       {isLoading && <Skeleton className="h-48 w-full" />}
 
       {playerMutation.data && (
-        <Badge variant="secondary">{playerMutation.data.name}</Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant="secondary">{playerMutation.data.name}</Badge>
+          {playerStatsQuery.data && playerStatsQuery.data.roundsPlayed > 0 && (
+            <span className="text-sm text-muted-foreground">
+              Avg {playerStatsQuery.data.avgWpm} WPM · {Math.round(playerStatsQuery.data.avgAccuracy * 100)}% accuracy · {playerStatsQuery.data.roundsPlayed} rounds
+            </span>
+          )}
+        </div>
       )}
 
       {roundQuery.data && joinMutation.data && (

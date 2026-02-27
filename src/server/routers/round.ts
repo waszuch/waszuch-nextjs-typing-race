@@ -57,6 +57,36 @@ export const roundRouter = router({
       return joined!;
     }),
 
+  saveProgress: publicProcedure
+    .input(
+      z.object({
+        roundId: z.string().uuid(),
+        playerId: z.string().uuid(),
+        progressText: z.string(),
+        wpm: z.number().min(0),
+        accuracy: z.number().min(0).max(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [updated] = await ctx.db
+        .update(roundPlayers)
+        .set({
+          progressText: input.progressText,
+          wpm: input.wpm,
+          accuracy: input.accuracy,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(roundPlayers.roundId, input.roundId),
+            eq(roundPlayers.playerId, input.playerId),
+          ),
+        )
+        .returning();
+
+      return updated ?? null;
+    }),
+
   end: publicProcedure
     .input(z.object({ roundId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
