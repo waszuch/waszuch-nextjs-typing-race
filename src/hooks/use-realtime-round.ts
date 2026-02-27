@@ -17,6 +17,8 @@ export function useRealtimeRound({
   playerName,
 }: UseRealtimeRoundOptions) {
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const lastBroadcastAtRef = useRef(0);
+  const BROADCAST_THROTTLE_MS = 150;
   const updatePlayer = usePlayersStore((s) => s.updatePlayer);
   const resetPlayers = usePlayersStore((s) => s.reset);
 
@@ -50,6 +52,10 @@ export function useRealtimeRound({
   const broadcast = useCallback(
     (typedText: string, wpm: number, accuracy: number) => {
       if (!channelRef.current || !playerId || !playerName) return;
+
+      const now = Date.now();
+      if (now - lastBroadcastAtRef.current < BROADCAST_THROTTLE_MS) return;
+      lastBroadcastAtRef.current = now;
 
       channelRef.current.send({
         type: "broadcast",

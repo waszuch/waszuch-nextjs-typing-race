@@ -1,8 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod/v4";
-import { publicProcedure, router } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import { publicProcedure, protectedProcedure, router } from "../trpc";
 import { rounds, roundPlayers, players } from "../db/schema";
 import { getRandomSentence } from "../constants";
+
+const ROUND_DURATION_SECONDS = 60;
 
 export const roundRouter = router({
   getActive: publicProcedure.query(async ({ ctx }) => {
@@ -28,12 +31,20 @@ export const roundRouter = router({
         .insert(rounds)
         .values({
           sentence: getRandomSentence(),
-          duration: 60,
+          duration: ROUND_DURATION_SECONDS,
         })
         .returning();
 
-      return created!;
-    } catch {
+      if (!created) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create round",
+        });
+      }
+
+      return created;
+    } catch (err) {
+      if (err instanceof TRPCError) throw err;
       const [existing] = await ctx.db
         .select()
         .from(rounds)
@@ -45,7 +56,7 @@ export const roundRouter = router({
     }
   }),
 
-  join: publicProcedure
+  join: protectedProcedure
     .input(
       z.object({
         roundId: z.string().uuid(),
@@ -53,6 +64,21 @@ export const roundRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const [player] = await ctx.db
+        .select({ id: players.id })
+        .from(players)
+        .where(
+          and(
+            eq(players.id, input.playerId),
+            eq(players.authId, ctx.authUserId),
+          ),
+        )
+        .limit(1);
+
+      if (!player) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
       const [existing] = await ctx.db
         .select()
         .from(roundPlayers)
@@ -74,10 +100,17 @@ export const roundRouter = router({
         })
         .returning();
 
-      return joined!;
+      if (!joined) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to join round",
+        });
+      }
+
+      return joined;
     }),
 
-  saveProgress: publicProcedure
+  saveProgress: protectedProcedure
     .input(
       z.object({
         roundId: z.string().uuid(),
@@ -88,6 +121,21 @@ export const roundRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const [player] = await ctx.db
+        .select({ id: players.id })
+        .from(players)
+        .where(
+          and(
+            eq(players.id, input.playerId),
+            eq(players.authId, ctx.authUserId),
+          ),
+        )
+        .limit(1);
+
+      if (!player) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
       const [updated] = await ctx.db
         .update(roundPlayers)
         .set({
@@ -107,9 +155,25 @@ export const roundRouter = router({
       return updated ?? null;
     }),
 
-  end: publicProcedure
+  end: protectedProcedure
     .input(z.object({ roundId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      const [participant] = await ctx.db
+        .select({ id: roundPlayers.id })
+        .from(roundPlayers)
+        .innerJoin(players, eq(roundPlayers.playerId, players.id))
+        .where(
+          and(
+            eq(roundPlayers.roundId, input.roundId),
+            eq(players.authId, ctx.authUserId),
+          ),
+        )
+        .limit(1);
+
+      if (!participant) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
       await ctx.db
         .update(rounds)
         .set({ status: "ended" })
@@ -120,21 +184,4 @@ export const roundRouter = router({
       return { ended: true };
     }),
 
-  getPlayers: publicProcedure
-    .input(z.object({ roundId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.db
-        .select({
-          id: roundPlayers.id,
-          playerId: roundPlayers.playerId,
-          playerName: players.name,
-          progressText: roundPlayers.progressText,
-          wpm: roundPlayers.wpm,
-          accuracy: roundPlayers.accuracy,
-          updatedAt: roundPlayers.updatedAt,
-        })
-        .from(roundPlayers)
-        .innerJoin(players, eq(roundPlayers.playerId, players.id))
-        .where(eq(roundPlayers.roundId, input.roundId));
-    }),
 });

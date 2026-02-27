@@ -1,31 +1,37 @@
 import { eq, avg, count } from "drizzle-orm";
 import { z } from "zod/v4";
-import { publicProcedure, router } from "../trpc";
+import { TRPCError } from "@trpc/server";
+import { publicProcedure, protectedProcedure, router } from "../trpc";
 import { players, roundPlayers } from "../db/schema";
 import { generatePlayerName } from "../constants";
 
 export const playerRouter = router({
-  findOrCreate: publicProcedure
-    .input(z.object({ authId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select()
-        .from(players)
-        .where(eq(players.authId, input.authId))
-        .limit(1);
+  findOrCreate: protectedProcedure.mutation(async ({ ctx }) => {
+    const [existing] = await ctx.db
+      .select()
+      .from(players)
+      .where(eq(players.authId, ctx.authUserId))
+      .limit(1);
 
-      if (existing) return existing;
+    if (existing) return existing;
 
-      const [created] = await ctx.db
-        .insert(players)
-        .values({
-          authId: input.authId,
-          name: generatePlayerName(),
-        })
-        .returning();
+    const [created] = await ctx.db
+      .insert(players)
+      .values({
+        authId: ctx.authUserId,
+        name: generatePlayerName(),
+      })
+      .returning();
 
-      return created!;
-    }),
+    if (!created) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to create player",
+      });
+    }
+
+    return created;
+  }),
 
   getStats: publicProcedure
     .input(z.object({ playerId: z.string().uuid() }))
