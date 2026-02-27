@@ -6,7 +6,9 @@ import {
   integer,
   real,
   pgEnum,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const roundStatusEnum = pgEnum("round_status", ["active", "ended"]);
 
@@ -19,15 +21,21 @@ export const players = pgTable("players", {
     .notNull(),
 });
 
-export const rounds = pgTable("rounds", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  sentence: text("sentence").notNull(),
-  startTime: timestamp("start_time", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  duration: integer("duration").notNull().default(60),
-  status: roundStatusEnum("status").notNull().default("active"),
-});
+export const rounds = pgTable(
+  "rounds",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sentence: text("sentence").notNull(),
+    startTime: timestamp("start_time", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    duration: integer("duration").notNull().default(60),
+    status: roundStatusEnum("status").notNull().default("active"),
+  },
+  (t) => [
+    uniqueIndex("unique_active_round").on(t.status).where(sql`${t.status} = 'active'`),
+  ],
+);
 
 export const roundPlayers = pgTable("round_players", {
   id: uuid("id").defaultRandom().primaryKey(),

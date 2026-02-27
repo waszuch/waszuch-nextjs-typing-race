@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { useTRPC } from "@/lib/trpc/client";
 import { queryClient } from "@/lib/trpc/shared";
 import { useTypingStore } from "@/stores/typing-store";
-import { usePlayersStore } from "@/stores/players-store";
+import { usePlayersStore, type PlayerProgress } from "@/stores/players-store";
 import { useRealtimeRound } from "@/hooks/use-realtime-round";
 import { useRoundTimer } from "@/hooks/use-round-timer";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +17,9 @@ import { TypingInput } from "@/components/typing-input";
 import { TypingStats } from "@/components/typing-stats";
 import { PlayersTable } from "@/components/players-table";
 import { RoundTimer } from "@/components/round-timer";
+import { RoundSummary } from "@/components/round-summary";
+
+const RESULTS_DURATION = 8;
 
 export default function Home() {
   return (
@@ -34,9 +37,17 @@ function GamePage() {
   const typedText = useTypingStore((s) => s.typedText);
   const wpm = useTypingStore((s) => s.wpm);
   const accuracy = useTypingStore((s) => s.accuracy);
+  const players = usePlayersStore((s) => s.players);
   const resetPlayers = usePlayersStore((s) => s.reset);
 
-  const roundQuery = useQuery(trpc.round.getActive.queryOptions());
+  const [showResults, setShowResults] = useState(false);
+  const [resultPlayers, setResultPlayers] = useState<PlayerProgress[]>([]);
+  const [resultsCountdown, setResultsCountdown] = useState(RESULTS_DURATION);
+
+  const roundQuery = useQuery({
+    ...trpc.round.getActive.queryOptions(),
+    staleTime: 0,
+  });
   const playerMutation = useMutation(trpc.player.findOrCreate.mutationOptions());
   const joinMutation = useMutation(trpc.round.join.mutationOptions());
   const endRoundMutation = useMutation(trpc.round.end.mutationOptions());
@@ -57,12 +68,58 @@ function GamePage() {
     playerName: playerMutation.data?.name,
   });
 
+  const startNextRound = useCallback(() => {
+    setShowResults(false);
+    resetTyping();
+    resetPlayers();
+    joinMutation.reset();
+    queryClient.invalidateQueries({
+      queryKey: trpc.round.getActive.queryKey(),
+    });
+    if (playerMutation.data) {
+      queryClient.invalidateQueries({
+        queryKey: trpc.player.getStats.queryKey({
+          playerId: playerMutation.data.id,
+        }),
+      });
+    }
+    isTransitioning.current = false;
+  }, [resetTyping, resetPlayers, joinMutation, trpc, playerMutation.data]);
+
   const handleTimeUp = useCallback(() => {
     if (!roundQuery.data || !playerMutation.data || isTransitioning.current)
       return;
     isTransitioning.current = true;
 
     const currentState = useTypingStore.getState();
+    const finalPlayers = Object.values(usePlayersStore.getState().players);
+
+    const hasActivity = currentState.typedText.length > 0 || finalPlayers.length > 0;
+
+    if (!hasActivity) {
+      endRoundMutation.mutate(
+        { roundId: roundQuery.data.id },
+        {
+          onSuccess: () => {
+            resetTyping();
+            resetPlayers();
+            joinMutation.reset();
+            queryClient.invalidateQueries({
+              queryKey: trpc.round.getActive.queryKey(),
+            });
+            isTransitioning.current = false;
+          },
+          onError: () => {
+            isTransitioning.current = false;
+          },
+        },
+      );
+      return;
+    }
+
+    setResultPlayers(finalPlayers);
+    setShowResults(true);
+    setResultsCountdown(RESULTS_DURATION);
 
     saveProgressMutation.mutate(
       {
@@ -74,41 +131,27 @@ function GamePage() {
       },
       {
         onSettled: () => {
-          endRoundMutation.mutate(
-            { roundId: roundQuery.data!.id },
-            {
-              onSuccess: () => {
-                resetTyping();
-                resetPlayers();
-                joinMutation.reset();
-                queryClient.invalidateQueries({
-                  queryKey: trpc.round.getActive.queryKey(),
-                });
-                queryClient.invalidateQueries({
-                  queryKey: trpc.player.getStats.queryKey({
-                    playerId: playerMutation.data!.id,
-                  }),
-                });
-                isTransitioning.current = false;
-              },
-              onError: () => {
-                isTransitioning.current = false;
-              },
-            },
-          );
+          endRoundMutation.mutate({ roundId: roundQuery.data!.id });
         },
       },
     );
-  }, [
-    roundQuery.data,
-    playerMutation.data,
-    endRoundMutation,
-    saveProgressMutation,
-    resetTyping,
-    resetPlayers,
-    joinMutation,
-    trpc,
-  ]);
+  }, [roundQuery.data, playerMutation.data, endRoundMutation, saveProgressMutation, resetTyping, resetPlayers, joinMutation, trpc]);
+
+  useEffect(() => {
+    if (!showResults) return;
+
+    const interval = setInterval(() => {
+      setResultsCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showResults]);
+
+  useEffect(() => {
+    if (showResults && resultsCountdown === 0) {
+      startNextRound();
+    }
+  }, [showResults, resultsCountdown, startNextRound]);
 
   const { secondsLeft } = useRoundTimer({
     startTime: roundQuery.data?.startTime,
@@ -123,6 +166,7 @@ function GamePage() {
 
   useEffect(() => {
     if (
+      showResults ||
       !roundQuery.data ||
       !playerMutation.data ||
       joinMutation.data ||
@@ -133,17 +177,19 @@ function GamePage() {
       roundId: roundQuery.data.id,
       playerId: playerMutation.data.id,
     });
-  }, [roundQuery.data, playerMutation.data]);
+  }, [roundQuery.data, playerMutation.data, showResults]);
 
   useEffect(() => {
-    if (roundQuery.data) {
+    if (roundQuery.data && !showResults) {
       setSentence(roundQuery.data.sentence);
     }
-  }, [roundQuery.data, setSentence]);
+  }, [roundQuery.data, setSentence, showResults]);
 
   useEffect(() => {
-    broadcast(typedText, wpm, accuracy);
-  }, [typedText, wpm, accuracy, broadcast]);
+    if (!showResults) {
+      broadcast(typedText, wpm, accuracy);
+    }
+  }, [typedText, wpm, accuracy, broadcast, showResults]);
 
   const isLoading = authLoading || roundQuery.isLoading || playerMutation.isPending;
 
@@ -164,7 +210,14 @@ function GamePage() {
         </div>
       )}
 
-      {roundQuery.data && joinMutation.data && (
+      {showResults && (
+        <RoundSummary
+          players={resultPlayers}
+          secondsUntilNext={resultsCountdown}
+        />
+      )}
+
+      {!showResults && roundQuery.data && joinMutation.data && (
         <>
           <Card className="w-full">
             <CardHeader>

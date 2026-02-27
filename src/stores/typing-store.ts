@@ -12,7 +12,7 @@ interface TypingState {
   reset: () => void;
 }
 
-function calculateAccuracy(sentence: string, typed: string): number {
+export function calculateAccuracy(sentence: string, typed: string): number {
   if (typed.length === 0) return 1;
   let correct = 0;
   for (let i = 0; i < typed.length; i++) {
@@ -21,7 +21,7 @@ function calculateAccuracy(sentence: string, typed: string): number {
   return correct / typed.length;
 }
 
-function calculateWpm(
+export function calculateWpm(
   sentence: string,
   typed: string,
   startedAt: number,

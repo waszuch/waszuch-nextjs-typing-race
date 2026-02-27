@@ -24,13 +24,19 @@ export function useRealtimeRound({
     if (!roundId) return;
 
     const supabase = createClient();
-    const channel = supabase.channel(`round:${roundId}`);
+    const channel = supabase.channel(`round:${roundId}`, {
+      config: { broadcast: { self: true } },
+    });
 
     channel
       .on("broadcast", { event: "progress" }, ({ payload }) => {
         updatePlayer(payload as PlayerProgress);
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          channelRef.current = channel;
+        }
+      });
 
     channelRef.current = channel;
 

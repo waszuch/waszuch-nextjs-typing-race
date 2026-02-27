@@ -6,23 +6,43 @@ import { getRandomSentence } from "../constants";
 
 export const roundRouter = router({
   getActive: publicProcedure.query(async ({ ctx }) => {
-    const [active] = await ctx.db
+    const [current] = await ctx.db
       .select()
       .from(rounds)
       .where(eq(rounds.status, "active"))
       .limit(1);
 
-    if (active) return active;
+    if (current) {
+      const elapsed = (Date.now() - new Date(current.startTime).getTime()) / 1000;
+      if (elapsed < current.duration) {
+        return current;
+      }
+      await ctx.db
+        .update(rounds)
+        .set({ status: "ended" })
+        .where(eq(rounds.id, current.id));
+    }
 
-    const [created] = await ctx.db
-      .insert(rounds)
-      .values({
-        sentence: getRandomSentence(),
-        duration: 60,
-      })
-      .returning();
+    try {
+      const [created] = await ctx.db
+        .insert(rounds)
+        .values({
+          sentence: getRandomSentence(),
+          duration: 60,
+        })
+        .returning();
 
-    return created!;
+      return created!;
+    } catch {
+      const [existing] = await ctx.db
+        .select()
+        .from(rounds)
+        .where(eq(rounds.status, "active"))
+        .limit(1);
+
+      if (existing) return existing;
+      throw new Error("Failed to get or create active round");
+    }
   }),
 
   join: publicProcedure
@@ -97,15 +117,7 @@ export const roundRouter = router({
           and(eq(rounds.id, input.roundId), eq(rounds.status, "active")),
         );
 
-      const [newRound] = await ctx.db
-        .insert(rounds)
-        .values({
-          sentence: getRandomSentence(),
-          duration: 60,
-        })
-        .returning();
-
-      return newRound!;
+      return { ended: true };
     }),
 
   getPlayers: publicProcedure
